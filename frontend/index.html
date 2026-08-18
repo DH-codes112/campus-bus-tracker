@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campus bus tracker</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    margin: 0;
+    background: #F7F6F2;
+    color: #2C2C2A;
+  }
+  header {
+    padding: 16px 20px;
+    background: white;
+    border-bottom: 1px solid #D3D1C7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header a {
+    font-size: 13px;
+    color: #0F6E56;
+    text-decoration: none;
+  }
+  #map { height: calc(100vh - 57px); width: 100%; }
+  .conn-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .conn-status.connected { background: #EAF3DE; color: #27500A; }
+  .conn-status.disconnected { background: #FCEBEB; color: #791F1F; }
+  .locate-btn {
+    font-size: 13px;
+    color: #0F6E56;
+    background: white;
+    border: 1px solid #D3D1C7;
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .locate-btn:hover { background: #F1EFE8; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Campus bus tracker</h1>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span id="connStatus" class="conn-status disconnected">Connecting...</span>
+    <button class="locate-btn" onclick="locateMe()">Find me</button>
+    <a href="/checkin.html">I'm on the bus &rarr;</a>
+  </div>
+</header>
+<div id="map"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const API_BASE = window.location.origin;
+const map = L.map('map').setView([26.507, 80.238], 14);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
+
+const busMarkers = {}; // bus_code -> marker
+
+function confidenceColor(conf) {
+  if (conf === 'high') return '#0F6E56';
+  if (conf === 'medium') return '#854F0B';
+  return '#A32D2D';
+}
+
+function busIcon(confidence) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:${confidenceColor(confidence)}; width:16px; height:16px; border-radius:50%; border:2px solid white; box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`,
+    iconSize: [16, 16],
+  });
+}
+
+function upsertBusMarker(bus) {
+  const popupText = `<b>${bus.bus_code}</b><br>Based on ${bus.report_count} report(s)<br>Confidence: ${bus.confidence}`;
+
+  if (busMarkers[bus.bus_code]) {
+    busMarkers[bus.bus_code].setLatLng([bus.latitude, bus.longitude]);
+    busMarkers[bus.bus_code].setIcon(busIcon(bus.confidence));
+    busMarkers[bus.bus_code].getPopup().setContent(popupText);
+  } else {
+    const marker = L.marker([bus.latitude, bus.longitude], { icon: busIcon(bus.confidence) })
+      .addTo(map)
+      .bindPopup(popupText);
+    busMarkers[bus.bus_code] = marker;
+  }
+}
+
+async function loadStops() {
+  const res = await fetch(`${API_BASE}/api/routes`);
+  const routes = await res.json();
+  routes.forEach(route => {
+    // stops already come back ordered by sequence (see models.py), so we
+    // can just connect them in the order the API returns them
+    const routeLine = route.stops.map(stop => [stop.latitude, stop.longitude]);
+    L.polyline(routeLine, {
+      color: '#0F6E56',
+      weight: 3,
+      opacity: 0.6,
+      dashArray: '6 8',
+    }).addTo(map).bindPopup(route.name);
+
+    route.stops.forEach(stop => {
+      L.circleMarker([stop.latitude, stop.longitude], {
+        radius: 5, color: '#5F5E5A', fillColor: '#B4B2A9', fillOpacity: 1, weight: 1
+      }).addTo(map).bindPopup(stop.name);
+    });
+  });
+}
+
+async function loadInitialBuses() {
+  const res = await fetch(`${API_BASE}/api/buses`);
+  const buses = await res.json();
+  buses.forEach(upsertBusMarker);
+}
+
+function connectWebSocket() {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws/live`);
+
+  ws.onopen = () => {
+    document.getElementById('connStatus').textContent = 'Live';
+    document.getElementById('connStatus').className = 'conn-status connected';
+  };
+  ws.onclose = () => {
+    document.getElementById('connStatus').textContent = 'Reconnecting...';
+    document.getElementById('connStatus').className = 'conn-status disconnected';
+    setTimeout(connectWebSocket, 3000);
+  };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'bus_location') {
+      upsertBusMarker(msg);
+    }
+  };
+}
+
+let meMarker = null;
+let meAccuracyCircle = null;
+
+function locateMe() {
+  map.locate({ setView: true, maxZoom: 17, enableHighAccuracy: true });
+}
+
+map.on('locationfound', (e) => {
+  // remove any previous "you are here" marker before drawing a fresh one
+  if (meMarker) map.removeLayer(meMarker);
+  if (meAccuracyCircle) map.removeLayer(meAccuracyCircle);
+
+  meMarker = L.circleMarker(e.latlng, {
+    radius: 8,
+    color: '#FFFFFF',
+    weight: 2,
+    fillColor: '#378ADD',
+    fillOpacity: 1,
+  }).addTo(map).bindPopup('You are here').openPopup();
+
+  // e.accuracy is in meters — draw a circle showing GPS uncertainty
+  meAccuracyCircle = L.circle(e.latlng, {
+    radius: e.accuracy,
+    color: '#378ADD',
+    fillColor: '#378ADD',
+    fillOpacity: 0.1,
+    weight: 1,
+  }).addTo(map);
+});
+
+map.on('locationerror', (e) => {
+  alert('Could not get your location: ' + e.message + '. Make sure location permission is allowed for this site.');
+});
+
+loadStops();
+loadInitialBuses();
+connectWebSocket();
+</script>
+</body>
+</html>

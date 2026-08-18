@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Check in to your bus</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+    background: #F7F6F2;
+    color: #2C2C2A;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  p.sub { color: #5F5E5A; font-size: 14px; margin-top: 0; }
+  .card {
+    background: white;
+    border: 1px solid #D3D1C7;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 16px;
+  }
+  select, button {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    border-radius: 8px;
+    border: 1px solid #B4B2A9;
+    margin-top: 10px;
+  }
+  button {
+    background: #0F6E56;
+    color: white;
+    border: none;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:disabled { background: #B4B2A9; }
+  button.stop { background: #A32D2D; }
+  .status {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  }
+  .status.active {
+    display: block;
+    background: #EAF3DE;
+    color: #27500A;
+  }
+  .status.error {
+    display: block;
+    background: #FCEBEB;
+    color: #791F1F;
+  }
+  .ping-count { font-size: 13px; color: #5F5E5A; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <h1>Check in to your bus</h1>
+  <p class="sub">Keep this page open while you're on the bus — it shares your location so others can see the bus live.</p>
+
+  <div class="card">
+    <label for="busSelect">Select your bus</label>
+    <select id="busSelect">
+      <option value="BUS-01">BUS-01 &mdash; Route 1: Hostel to Main Gate</option>
+      <option value="BUS-02">BUS-02 &mdash; Route 1: Hostel to Main Gate</option>
+    </select>
+    <button id="checkinBtn">Check in</button>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div id="pingCount" class="ping-count"></div>
+
+<script>
+const API_BASE = window.location.origin;
+let checkinId = null;
+let pingTimer = null;
+let pingCount = 0;
+
+function getStudentToken() {
+  let token = localStorage.getItem('studentToken');
+  if (!token) {
+    token = 'student-' + Math.random().toString(36).slice(2, 12);
+    localStorage.setItem('studentToken', token);
+  }
+  return token;
+}
+
+function showStatus(msg, isError) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'active');
+}
+
+async function checkin() {
+  const busCode = document.getElementById('busSelect').value;
+  const btn = document.getElementById('checkinBtn');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bus_code: busCode, student_token: getStudentToken() })
+    });
+    if (!res.ok) throw new Error('Check-in failed');
+    const data = await res.json();
+    checkinId = data.checkin_id;
+
+    showStatus(`Checked in to ${data.bus_code}. Sharing your location now.`);
+    btn.textContent = 'Stop sharing';
+    btn.classList.add('stop');
+    btn.disabled = false;
+    btn.onclick = stopSharing;
+
+    startPinging();
+  } catch (err) {
+    showStatus('Could not check in. Check your connection and try again.', true);
+    btn.disabled = false;
+  }
+}
+
+function startPinging() {
+  sendPing(); // immediate first ping
+  pingTimer = setInterval(sendPing, 8000); // then every 8s
+}
+
+function sendPing() {
+  if (!navigator.geolocation) {
+    showStatus('This browser does not support location sharing.', true);
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      try {
+        await fetch(`${API_BASE}/api/ping`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            checkin_id: checkinId,
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy_m: pos.coords.accuracy
+          })
+        });
+        pingCount++;
+        document.getElementById('pingCount').textContent = `${pingCount} location updates sent`;
+      } catch (err) {
+        // a single failed ping isn't fatal, next interval will retry
+      }
+    },
+    (err) => showStatus('Location permission needed to share your bus position.', true),
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+async function stopSharing() {
+  clearInterval(pingTimer);
+  if (checkinId) {
+    await fetch(`${API_BASE}/api/checkout/${checkinId}`, { method: 'POST' });
+  }
+  const btn = document.getElementById('checkinBtn');
+  btn.textContent = 'Check in';
+  btn.classList.remove('stop');
+  btn.onclick = checkin;
+  showStatus('Stopped sharing. Thanks for helping others!');
+}
+
+document.getElementById('checkinBtn').onclick = checkin;
+</script>
+</body>
+</html>

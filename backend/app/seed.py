@@ -23,10 +23,8 @@ def run():
     db.flush()
 
     demo_stops = [
-        ("Hostel Gate", 26.5123, 80.2329, 1),
-        ("Boys Hostel Circle", 26.5089, 80.2361, 2),
-        ("Academic Block", 26.5041, 80.2398, 3),
-        ("Main Gate", 26.4998, 80.2432, 4),
+        ("Ahirwan",26.394936, 80.404495, 1),
+        ("PSIT",26.448147, 80.191150, 2),
     ]
     for name, lat, lon, seq in demo_stops:
         db.add(models.Stop(route_id=route.id, name=name,

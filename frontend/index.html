@@ -99,18 +99,37 @@ function upsertBusMarker(bus) {
   }
 }
 
+// Asks OSRM's public routing server for the actual road path connecting
+// a sequence of stops, instead of drawing a straight line through them.
+// Falls back to a straight line if the routing service is unreachable.
+async function fetchRoadRoute(stops) {
+  const coordString = stops.map(s => `${s.longitude},${s.latitude}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
+      throw new Error('No route found');
+    }
+    // OSRM returns [lon, lat] pairs; Leaflet wants [lat, lon]
+    return data.routes[0].geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+  } catch (err) {
+    console.warn('Road routing unavailable, falling back to straight line:', err);
+    return stops.map(s => [s.latitude, s.longitude]);
+  }
+}
+
 async function loadStops() {
   const res = await fetch(`${API_BASE}/api/routes`);
   const routes = await res.json();
-  routes.forEach(route => {
-    // stops already come back ordered by sequence (see models.py), so we
-    // can just connect them in the order the API returns them
-    const routeLine = route.stops.map(stop => [stop.latitude, stop.longitude]);
-    L.polyline(routeLine, {
+  for (const route of routes) {
+    // stops already come back ordered by sequence (see models.py)
+    const roadPath = await fetchRoadRoute(route.stops);
+    L.polyline(roadPath, {
       color: '#0F6E56',
-      weight: 3,
-      opacity: 0.6,
-      dashArray: '6 8',
+      weight: 4,
+      opacity: 0.7,
     }).addTo(map).bindPopup(route.name);
 
     route.stops.forEach(stop => {
@@ -118,7 +137,7 @@ async function loadStops() {
         radius: 5, color: '#5F5E5A', fillColor: '#B4B2A9', fillOpacity: 1, weight: 1
       }).addTo(map).bindPopup(stop.name);
     });
-  });
+  }
 }
 
 async function loadInitialBuses() {

@@ -67,8 +67,7 @@
   <div class="card">
     <label for="busSelect">Select your bus</label>
     <select id="busSelect">
-      <option value="BUS-01">BUS-01 &mdash; Route 1: Hostel to Main Gate</option>
-      <option value="BUS-02">BUS-02 &mdash; Route 1: Hostel to Main Gate</option>
+      <option value="">Loading buses...</option>
     </select>
     <button id="checkinBtn">Check in</button>
   </div>
@@ -81,6 +80,32 @@ const API_BASE = window.location.origin;
 let checkinId = null;
 let pingTimer = null;
 let pingCount = 0;
+
+async function loadBusOptions() {
+  const select = document.getElementById('busSelect');
+  try {
+    const res = await fetch(`${API_BASE}/api/routes`);
+    const routes = await res.json();
+
+    select.innerHTML = '';
+    let anyBuses = false;
+    routes.forEach(route => {
+      route.buses.forEach(bus => {
+        anyBuses = true;
+        const opt = document.createElement('option');
+        opt.value = bus.code;
+        opt.textContent = `${bus.code} — ${route.name}`;
+        select.appendChild(opt);
+      });
+    });
+
+    if (!anyBuses) {
+      select.innerHTML = '<option value="">No buses available</option>';
+    }
+  } catch (err) {
+    select.innerHTML = '<option value="">Could not load buses</option>';
+  }
+}
 
 function getStudentToken() {
   let token = localStorage.getItem('studentToken');
@@ -172,6 +197,7 @@ async function stopSharing() {
 }
 
 document.getElementById('checkinBtn').onclick = checkin;
+loadBusOptions();
 </script>
 </body>
 </html>

@@ -85,7 +85,8 @@ function busIcon(confidence) {
 }
 
 function upsertBusMarker(bus) {
-  const popupText = `<b>${bus.bus_code}</b><br>Based on ${bus.report_count} report(s)<br>Confidence: ${bus.confidence}`;
+  const routeLine = bus.route_name ? `${bus.route_name}<br>` : '';
+  const popupText = `<b>${bus.bus_code}</b><br>${routeLine}Based on ${bus.report_count} report(s)<br>Confidence: ${bus.confidence}`;
 
   if (busMarkers[bus.bus_code]) {
     busMarkers[bus.bus_code].setLatLng([bus.latitude, bus.longitude]);
@@ -120,22 +121,29 @@ async function fetchRoadRoute(stops) {
   }
 }
 
+// Distinct colors so overlapping routes stay visually separable.
+// If you add a 5th+ route, this just cycles back to the start.
+const ROUTE_COLORS = ['#0F6E56', '#854F0B', '#2D5F8B', '#7A3B69'];
+
 async function loadStops() {
   const res = await fetch(`${API_BASE}/api/routes`);
   const routes = await res.json();
-  for (const route of routes) {
+  for (let i = 0; i < routes.length; i++) {
+    const route = routes[i];
+    const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+
     // stops already come back ordered by sequence (see models.py)
     const roadPath = await fetchRoadRoute(route.stops);
     L.polyline(roadPath, {
-      color: '#0F6E56',
+      color: color,
       weight: 4,
       opacity: 0.7,
     }).addTo(map).bindPopup(route.name);
 
     route.stops.forEach(stop => {
       L.circleMarker([stop.latitude, stop.longitude], {
-        radius: 5, color: '#5F5E5A', fillColor: '#B4B2A9', fillOpacity: 1, weight: 1
-      }).addTo(map).bindPopup(stop.name);
+        radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 1
+      }).addTo(map).bindPopup(`${stop.name}<br><span style="color:${color}">${route.name}</span>`);
     });
   }
 }

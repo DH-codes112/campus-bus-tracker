@@ -18,24 +18,35 @@ def run():
         print("Already seeded, skipping.")
         return
 
-    route = models.Route(name="Route 1: Hostel -> Main Gate")
-    db.add(route)
+    # Route 1: Hostel -> Main Gate, served by BUS-01
+    route1 = models.Route(name="Route 1")
+    db.add(route1)
     db.flush()
-
-    demo_stops = [
-        ("Ahirwan",26.394936, 80.404495, 1),
-        ("PSIT",26.448147, 80.191150, 2),
+    route1_stops = [
+        ("RAWATPUR", 26.480684735962225, 80.27795722192468, 1),
+        ("PSIT", 26.44897291463449, 80.19029330993578, 2),
     ]
-    for name, lat, lon, seq in demo_stops:
-        db.add(models.Stop(route_id=route.id, name=name,
+    for name, lat, lon, seq in route1_stops:
+        db.add(models.Stop(route_id=route1.id, name=name,
                             latitude=lat, longitude=lon, sequence=seq))
+    db.add(models.Bus(code="BUS-01", route_id=route1.id))
 
-    bus1 = models.Bus(code="BUS-01", route_id=route.id)
-    bus2 = models.Bus(code="BUS-02", route_id=route.id)
-    db.add_all([bus1, bus2])
+    # Route 2: a separate example route, served by BUS-02 —
+    # replace these coordinates with your college's second route
+    route2 = models.Route(name="Route 2")
+    db.add(route2)
+    db.flush()
+    route2_stops = [
+        ("AHIRWAN",26.395602286681306, 80.4037466181346, 1),
+        ("PSIT", 26.44897291463449, 80.19029330993578, 2),
+    ]
+    for name, lat, lon, seq in route2_stops:
+        db.add(models.Stop(route_id=route2.id, name=name,
+                            latitude=lat, longitude=lon, sequence=seq))
+    db.add(models.Bus(code="BUS-02", route_id=route2.id))
 
     db.commit()
-    print(f"Seeded route '{route.name}' with buses BUS-01 and BUS-02.")
+    print(f"Seeded '{route1.name}' (BUS-01) and '{route2.name}' (BUS-02).")
     db.close()
 
 

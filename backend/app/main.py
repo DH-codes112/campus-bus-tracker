@@ -59,6 +59,8 @@ class PingRequest(BaseModel):
 class BusLocationOut(BaseModel):
     bus_id: int
     bus_code: str
+    route_id: Optional[int] = None
+    route_name: Optional[str] = None
     latitude: float
     longitude: float
     report_count: int
@@ -145,6 +147,8 @@ def list_bus_locations(db: Session = Depends(get_db)):
             results.append(BusLocationOut(
                 bus_id=bus.id,
                 bus_code=bus.code,
+                route_id=bus.route_id,
+                route_name=bus.route.name if bus.route else None,
                 latitude=loc.latitude,
                 longitude=loc.longitude,
                 report_count=loc.report_count,
@@ -209,6 +213,8 @@ async def broadcast_bus_location(bus_id: int, db: Session):
         "type": "bus_location",
         "bus_id": bus.id,
         "bus_code": bus.code,
+        "route_id": bus.route_id,
+        "route_name": bus.route.name if bus.route else None,
         "latitude": loc.latitude,
         "longitude": loc.longitude,
         "report_count": loc.report_count,
